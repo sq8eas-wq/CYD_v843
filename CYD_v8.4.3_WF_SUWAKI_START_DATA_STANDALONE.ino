@@ -8199,12 +8199,12 @@ enum ScreenPage : uint8_t { PAGE_PLAYER, PAGE_STATIONS, PAGE_TOOLS, PAGE_BRIGHTN
 enum AppMode : uint8_t { APP_HOME, APP_RADIO, APP_M0NKA, APP_WEATHER };
 enum M0nkaPage : uint8_t { M0_WATERFALL, M0_SPOTS, M0_APRS, M0_FT8, M0_CW };
 
-// Jawne prototypy musza znajdowac sie po definicjach enumow. Arduino-ESP32
-// 2.0.17 potrafi inaczej wygenerowac je na poczatku szkicu, zanim zna typy
-// LedState i M0nkaPage, co powoduje blad "was not declared in this scope".
-void setRgb(LedState state);
-void m0RefreshDataPage(M0nkaPage page);
-void m0ParseServerList(const String& text, M0nkaPage page);
+// Parametry prototypow sa typami podstawowymi celowo. Preprocesor Arduino CLI
+// potrafi wstawic automatyczne prototypy przed ponizszymi enumami i wtedy
+// kompilacja konczy sie bledem "has not been declared".
+void setRgb(uint8_t state);
+void m0RefreshDataPage(uint8_t page);
+void m0ParseServerList(const String& text, uint8_t page);
 
 AppMode appMode = APP_HOME;
 M0nkaPage m0Page = M0_WATERFALL;
@@ -9761,7 +9761,7 @@ String lcdSafe(String s) {
   return s;
 }
 
-void setRgb(LedState state) {
+void setRgb(uint8_t state) {
   // Dioda RGB w CYD jest sterowana stanem niskim.
   digitalWrite(RGB_R, HIGH); digitalWrite(RGB_G, HIGH); digitalWrite(RGB_B, HIGH);
   if (state == LED_PLAY) digitalWrite(RGB_G, LOW);
@@ -10970,7 +10970,7 @@ void m0ParseSpotsV57(const String& json){
     pos=q+ptn.length();
   }
 }
-void m0RefreshDataPage(M0nkaPage page){
+void m0RefreshDataPage(uint8_t page){
   if(page!=M0_SPOTS)return;
   if(WiFi.status()!=WL_CONNECTED){m0SpotsStatus="Brak Wi-Fi";return;}
   String j=m0HttpGet("/api/spots");
@@ -11103,7 +11103,7 @@ void m0ReleaseNetworkAndAudio(){
 }
 void m0ProcessAudio(const int16_t*,size_t){}
 String m0Field(String row,int idx){int start=0;for(int i=0;i<idx;i++){int p=row.indexOf('|',start);if(p<0)return "";start=p+1;}int e=row.indexOf('|',start);return e<0?row.substring(start):row.substring(start,e);}
-void m0ParseServerList(const String& text,M0nkaPage page){
+void m0ParseServerList(const String& text, uint8_t page){
   if(page!=M0_SPOTS)return;
   m0SpotCount=0;m0SpotPage=0;int pos=0;
   while(pos<(int)text.length()&&m0SpotCount<40){
