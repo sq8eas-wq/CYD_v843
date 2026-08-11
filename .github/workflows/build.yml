@@ -39,6 +39,9 @@ jobs:
           arduino-cli lib install "LovyanGFX"
           arduino-cli lib install "WebSockets"
 
+          # Arduino CLI 1.0+ blokuje domyslnie instalacje bibliotek z lokalnego ZIP-a.
+          arduino-cli config set library.enable_unsafe_install true
+
           AUDIO_ZIP="$(find "$GITHUB_WORKSPACE" -type f -name 'ESP32_audioI2S_legacy_2.0.0_ArduinoESP32_2.0.17.zip' -print -quit)"
           if [[ -z "$AUDIO_ZIP" ]]; then
             echo "ERROR: Missing ESP32_audioI2S_legacy_2.0.0_ArduinoESP32_2.0.17.zip"
