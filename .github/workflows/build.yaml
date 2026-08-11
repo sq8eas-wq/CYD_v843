@@ -1,0 +1,125 @@
+name: Build CYD v8.4.3 firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "**/*.ino"
+      - "**/ESP32_audioI2S_legacy_2.0.0_ArduinoESP32_2.0.17.zip"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    name: Compile app.bin and full.bin
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core 2.0.17
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@2.0.17 \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Install libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          arduino-cli lib install "LovyanGFX"
+          arduino-cli lib install "WebSockets"
+
+          AUDIO_ZIP="$(find "$GITHUB_WORKSPACE" -type f -name 'ESP32_audioI2S_legacy_2.0.0_ArduinoESP32_2.0.17.zip' -print -quit)"
+          if [[ -z "$AUDIO_ZIP" ]]; then
+            echo "ERROR: Missing ESP32_audioI2S_legacy_2.0.0_ArduinoESP32_2.0.17.zip"
+            exit 1
+          fi
+
+          arduino-cli lib install --zip-path "$AUDIO_ZIP"
+
+      - name: Prepare sketch
+        id: sketch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SKETCH_FILE="$(find "$GITHUB_WORKSPACE" -type f -name 'CYD_v8.4.3_WF_SUWAKI_START_DATA_STANDALONE.ino' -print -quit)"
+          if [[ -z "$SKETCH_FILE" ]]; then
+            echo "ERROR: Missing CYD_v8.4.3_WF_SUWAKI_START_DATA_STANDALONE.ino"
+            exit 1
+          fi
+
+          SKETCH_NAME="CYD_v8.4.3_WF_SUWAKI_START_DATA_STANDALONE"
+          SKETCH_DIR="$RUNNER_TEMP/$SKETCH_NAME"
+          mkdir -p "$SKETCH_DIR"
+          cp "$SKETCH_FILE" "$SKETCH_DIR/$SKETCH_NAME.ino"
+
+          echo "name=$SKETCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "dir=$SKETCH_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Compile firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cyd-build"
+
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32:FlashFreq=80,UploadSpeed=921600,DebugLevel=none,PartitionScheme=huge_app,PSRAM=enabled" \
+            --build-path "$RUNNER_TEMP/cyd-build" \
+            --warnings default \
+            "${{ steps.sketch.outputs.dir }}"
+
+      - name: Create app.bin and full.bin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_DIR="$RUNNER_TEMP/cyd-build"
+          OUTPUT_DIR="$GITHUB_WORKSPACE/firmware-bin"
+          SKETCH_NAME="${{ steps.sketch.outputs.name }}"
+          mkdir -p "$OUTPUT_DIR"
+
+          APP_BIN="$BUILD_DIR/$SKETCH_NAME.ino.bin"
+          BOOTLOADER_BIN="$BUILD_DIR/$SKETCH_NAME.ino.bootloader.bin"
+          PARTITIONS_BIN="$BUILD_DIR/$SKETCH_NAME.ino.partitions.bin"
+          BOOT_APP0_BIN="$(find "$HOME/.arduino15/packages/esp32/hardware/esp32/2.0.17/tools/partitions" -name 'boot_app0.bin' -print -quit)"
+          ESPTOOL_PY="$(find "$HOME/.arduino15/packages/esp32/tools/esptool_py" -name 'esptool.py' -print -quit)"
+
+          for FILE in "$APP_BIN" "$BOOTLOADER_BIN" "$PARTITIONS_BIN" "$BOOT_APP0_BIN" "$ESPTOOL_PY"; do
+            if [[ ! -f "$FILE" ]]; then
+              echo "ERROR: Required build file not found: $FILE"
+              exit 1
+            fi
+          done
+
+          cp "$APP_BIN" "$OUTPUT_DIR/CYD_v843_app.bin"
+
+          python3 "$ESPTOOL_PY" --chip esp32 merge_bin \
+            -o "$OUTPUT_DIR/CYD_v843_full.bin" \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 4MB \
+            0x1000 "$BOOTLOADER_BIN" \
+            0x8000 "$PARTITIONS_BIN" \
+            0xe000 "$BOOT_APP0_BIN" \
+            0x10000 "$APP_BIN"
+
+          ls -lh "$OUTPUT_DIR"
+
+      - name: Upload compiled BIN files
+        uses: actions/upload-artifact@v4
+        with:
+          name: CYD_v843_BIN
+          path: firmware-bin/*.bin
+          if-no-files-found: error
+          retention-days: 30
